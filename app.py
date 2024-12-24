@@ -14,7 +14,7 @@ import shutil
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load models
-ball_detection_model = YOLO('new.pt').to(device)
+ball_detection_model = YOLO('ball_segmentation.pt').to(device)
 stump_detection_model = YOLO('stump_detection.pt').to(device)
 stump_img_path = 'frame6.jpg'
 input_video_path = 'video19.mp4'
@@ -61,7 +61,6 @@ def detect_and_draw_boxes_with_overlay(image, stump_img, class_name='stumps'):
     
     if not DETECTED_BOXES:
         results = stump_detection_model(stump_img)[0]
-        print("results",results.boxes)
         for i, box in enumerate(results.boxes.xyxy):
             cls = int(results.boxes.cls[i])
             class_label = results.names[cls]
@@ -80,9 +79,9 @@ def detect_and_draw_boxes_with_overlay(image, stump_img, class_name='stumps'):
         cv2.line(annotated_image, (x2a, y2a), (x2b, y2b), (255, 0, 0), 2)
         
     return annotated_image
-
+PIXEL_VALUES = []
 def process_video(input_video_path, output_video_path, stump_img_path):
-    global COORDINATES , BELOW_STUMP ,PITCH_BOUNCE
+    global COORDINATES , BELOW_STUMP ,PITCH_BOUNCE , PIXEL_VALUES
     kf = KalmanFilter()
     cap = cv2.VideoCapture(input_video_path)
 
@@ -116,22 +115,50 @@ def process_video(input_video_path, output_video_path, stump_img_path):
 
         for result in results:
             boxes = result.boxes
+            masks = result.masks  # Get the segmentation masks (may be None)
+
             for box in boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 COORDINATES['x1'] = x1
                 COORDINATES['y1'] = y1
                 COORDINATES['x2'] = x2
                 COORDINATES['y2'] = y2
+
+                # Calculate the area from bounding box
+                area = (x2 - x1) * (y2 - y1)
+                
+                # Check if masks are available before proceeding
+                if masks is not None:
+                    for mask in masks:
+                        # Access the raw mask data
+                        mask_data = mask.data.cpu().numpy()  # Convert to NumPy array if it's a tensor
+
+                        # Ensure mask is 2D
+                        if mask_data.ndim > 2:  # If the mask has more than 2 dimensions (e.g., multi-channel)
+                            mask_data = np.sum(mask_data, axis=0)  # Sum over the channels to get a single-channel mask
+                        
+                        # Convert to binary mask (threshold > 0.5)
+                        mask_data = (mask_data > 0.5).astype(np.uint8)
+
+                        # Count the segmented pixels
+                        segmented_pixels = np.sum(mask_data)  # Count the segmented pixels
+                        PIXEL_VALUES.append((area, segmented_pixels))
+                else:
+                    print("No masks available for this detection.")
+
+                # Calculate the center of the bounding box
                 center_x = (x1 + x2) // 2
-                center_y = (y1 + y2) // 2 
+                center_y = (y1 + y2) // 2
                 current_positions.append((center_x, center_y))
+
+
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
         if current_positions:
             object_positions.append(current_positions)
             
-        for frame_positions in object_positions:
-            for center_x, center_y in frame_positions:
-                cv2.circle(frame, (center_x, center_y), 7, (0, 0, 255), -1) 
+        # for frame_positions in object_positions:
+        #     for center_x, center_y in frame_positions:
+        #         cv2.circle(frame, (center_x, center_y), 7, (0, 0, 255), -1) 
         
         if not BELOW_STUMP and current_positions and (current_positions[0][1] > DETECTED_BOXES[0][1]  or current_positions[0][1] > DETECTED_BOXES[1][1]):
             print("Ball below stump height !!")
@@ -152,13 +179,17 @@ def process_video(input_video_path, output_video_path, stump_img_path):
 
         if frame_number == int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) and last_predicted :
             while last_predicted[1] > DETECTED_BOXES[0][1] or last_predicted[1] > DETECTED_BOXES[1][1]:
-                print("predicting ball", last_predicted,DETECTED_BOXES[0][1],DETECTED_BOXES[1][1])
                 if last_predicted:
                     last_predicted = kf.predict(last_predicted[0], last_predicted[1])
-                    cv2.circle(frame, (int(last_predicted[0]), int(last_predicted[1])), 7, (0, 255, 0), -1)
+                    # cv2.circle(frame, (int(last_predicted[0]), int(last_predicted[1])), 7, (0, 255, 0), -1)
                     object_positions.append([(int(last_predicted[0]), int(last_predicted[1]))])
                 if last_predicted[0] < 0:
                     break
+                
+            pitch_point = find_pitch_point(object_positions)
+            print("Pitch Point", pitch_point)
+            # darw circle on a white color on the pitch point
+            cv2.circle(frame, (pitch_point[0], pitch_point[1]), 7, (255, 255, 255), -1)
                     
         # Draw connecting lines between consecutive positions
         for i in range(1, len(object_positions)):
@@ -171,38 +202,54 @@ def process_video(input_video_path, output_video_path, stump_img_path):
                 prev_x, prev_y = prev_positions[0]
                 curr_x, curr_y = curr_positions[0]
                 
-                cv2.line(frame, (prev_x, prev_y), (curr_x, curr_y), (255 , 0 ,0), 7)
+                # Create an overlay
+                overlay = frame.copy()
+                
+                # Draw line on the overlay
+                cv2.line(overlay, (prev_x, prev_y), (curr_x, curr_y), (255, 0, 0), 7)
+                
+                # Blend the overlay with the original frame
+                opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
+                frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
 
         previous_positions = current_positions
+        
         out.write(frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-        
-        
-    prev = float('inf')
-    for i in object_positions:
-        if len(i) > 1:
-            continue
-        if (prev - i[0][1]) < 0:
-            print(i , "positive" , end= " ")
-        else:
-            print(i, "negative" , end= " ")
-        flag = False
-        for j in DETECTED_BOXES:
-            if j[1] < i[0][1] or j[3] < i[0][1]:
-                flag = True
-                print("below stump height !!")
-                break
-        else:
-            print("above stump height !!")
-            
-        prev = i[0][1]
+    
+
+
     cap.release()
     out.release()
     cv2.destroyAllWindows()
     shutil.rmtree(temp_dir)
 
+# Function to find the pitch point
+def find_pitch_point(object_positions):
+    pitch_point = None
+    moving_up = False
+    prev = [(-1 , float('inf'))]
+    for ind, n in enumerate(object_positions):
+        if len(n) > 1:
+            continue
+        if (prev[0][1] - n[0][1]) < 0:
+            moving_up = False
+        else:
+            moving_up = True
+        #checking if the ball is under the stump and moving up
+        for j in DETECTED_BOXES:
+            if j[1] < n[0][1] or j[3] < n[0][1]:
+                if moving_up and not pitch_point:
+                    pitch_point = prev[0]
+                break
+
+        prev = n
+    return pitch_point
+
 if __name__ == '__main__':
     process_video(input_video_path, output_video_path, stump_img_path)
     print("Coordinates",COORDINATES)
     print("Detected Boxes",DETECTED_BOXES)
+    # for i in PIXEL_VALUES:
+    #     print(i)
