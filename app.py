@@ -17,7 +17,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ball_detection_model = YOLO('ball_segmentation.pt').to(device)
 stump_detection_model = YOLO('stump_detection.pt').to(device)
 stump_img_path = 'frame6.jpg'
-input_video_path = 'video19.mp4'
+input_video_path = 'video24.mp4'
 output_video_path = 'output_video.mp4'
 
 COORDINATES = {} # format {'x1': 0, 'y1': 0, 'x2': 0, 'y2': 0}
@@ -78,10 +78,10 @@ def detect_and_draw_boxes_with_overlay(image, stump_img, class_name='stumps'):
         pts = np.array([[x2b, y2b], [x2a, y2a], [x1a, y2a], [x1b, y2b]], np.int32).reshape((-1, 1, 2))
         IN_LINE = [[x2b, y2b], [x2a, y2a], [x1a, y2a], [x1b, y2b]]
         overlay = np.zeros_like(annotated_image)
-        cv2.fillPoly(overlay, [pts], (255, 0, 0))
+        cv2.fillPoly(overlay, [pts], (128, 128, 128))
         cv2.addWeighted(overlay, 0.35, annotated_image, 0.65, 0, annotated_image)
-        cv2.line(annotated_image, (x1a, y2a), (x1b, y2b), (255, 0, 0), 2)
-        cv2.line(annotated_image, (x2a, y2a), (x2b, y2b), (255, 0, 0), 2)
+        cv2.line(annotated_image, (x1a, y2a), (x1b, y2b), (128, 128, 128), 1)
+        cv2.line(annotated_image, (x2a, y2a), (x2b, y2b), (128, 128, 128), 1)
         
     return annotated_image
 
@@ -160,10 +160,7 @@ def process_video(input_video_path, output_video_path, stump_img_path):
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
         if current_positions:
             object_positions.append(current_positions)
-            
-        # for frame_positions in object_positions:
-        #     for center_x, center_y in frame_positions:
-        #         cv2.circle(frame, (center_x, center_y), 7, (0, 0, 255), -1) 
+        
         
         if not BELOW_STUMP and current_positions and (current_positions[0][1] > DETECTED_BOXES[0][1]  or current_positions[0][1] > DETECTED_BOXES[1][1]):
             print("Ball below stump height !!")
@@ -181,23 +178,8 @@ def process_video(input_video_path, output_video_path, stump_img_path):
                 if predicted is not None:
                     predicted_x, predicted_y = predicted
                     last_predicted = (predicted_x, predicted_y)
-
-        if frame_number == int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) and last_predicted :
-            IMPACT_POINT = object_positions[-1][0]
-            cv2.circle(frame, (IMPACT_POINT[0], IMPACT_POINT[1]), 7, (255, 255, 255), -1)
-            while last_predicted[1] > DETECTED_BOXES[0][1] or last_predicted[1] > DETECTED_BOXES[1][1]:
-                if last_predicted:
-                    last_predicted = kf.predict(last_predicted[0], last_predicted[1])
-                    # cv2.circle(frame, (int(last_predicted[0]), int(last_predicted[1])), 7, (0, 255, 0), -1)
-                    object_positions.append([(int(last_predicted[0]), int(last_predicted[1]))])
-                if last_predicted[0] < 0:
-                    break
-                
-            PITCH_POINT = find_pitch_point(object_positions)
-            # darw circle on a white color on the pitch point
-            cv2.circle(frame, (PITCH_POINT[0], PITCH_POINT[1]), 7, (255, 255, 255), -1)
                     
-        # Draw connecting lines between consecutive positions
+        # Draw connecting lines between consecutive positions of detected objects
         for i in range(1, len(object_positions)):
             prev_positions = object_positions[i - 1]
             curr_positions = object_positions[i]
@@ -212,11 +194,53 @@ def process_video(input_video_path, output_video_path, stump_img_path):
                 overlay = frame.copy()
                 
                 # Draw line on the overlay
-                cv2.line(overlay, (prev_x, prev_y), (curr_x, curr_y), (255, 0, 0), 7)
-                
+                cv2.line(overlay, (prev_x, prev_y), (curr_x, curr_y), (0, 0, 255), 7)
                 # Blend the overlay with the original frame
                 opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
                 frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
+                    
+        
+        if frame_number == int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) and last_predicted :            
+            
+            predicted_positions = [object_positions[-1]]
+            while last_predicted[1] > DETECTED_BOXES[0][1] or last_predicted[1] > DETECTED_BOXES[1][1]:
+                if last_predicted:
+                    last_predicted = kf.predict(last_predicted[0], last_predicted[1])
+                    # cv2.circle(frame, (int(last_predicted[0]), int(last_predicted[1])), 7, (0, 255, 0), -1)
+                    predicted_positions.append([(int(last_predicted[0]), int(last_predicted[1]))])
+                if last_predicted[0] < 0:
+                    break
+                    
+            
+            # Draw connecting lines between consecutive positions of predicted objects
+            for i in range(1, len(predicted_positions)):
+                prev_positions = predicted_positions[i - 1]
+                curr_positions = predicted_positions[i]
+                
+                # Ensure both frames have detected positions to connect
+                if prev_positions and curr_positions:
+                    # Use the first detected object in each frame (or modify if there are multiple)
+                    prev_x, prev_y = prev_positions[0]
+                    curr_x, curr_y = curr_positions[0]
+                    
+                    # Create an overlay
+                    overlay = frame.copy()
+                    
+                    # Draw line on the overlay
+                    cv2.line(overlay, (prev_x, prev_y), (curr_x, curr_y), ((255, 0, 0)), 7)
+                    
+                    # Blend the overlay with the original frame
+                    opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
+                    frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
+            if len(predicted_positions) > 0:
+                cx,cy = predicted_positions[-1][0]
+                cv2.circle(frame, (cx, cy), 5, (0, 0, 128), -1)
+            
+                IMPACT_POINT = object_positions[-1][0]
+                cv2.circle(frame, (IMPACT_POINT[0], IMPACT_POINT[1]), 5, (0, 0, 128), -1)
+                
+                PITCH_POINT = find_pitch_point(object_positions)
+                cv2.circle(frame, (PITCH_POINT[0], PITCH_POINT[1]), 5, (0, 0, 128), -1)
 
         previous_positions = current_positions
         
@@ -246,7 +270,7 @@ def find_pitch_point(object_positions):
         #checking if the ball is under the stump and moving up
         for j in DETECTED_BOXES:
             if j[1] < n[0][1] or j[3] < n[0][1]:
-                if moving_up and not pitch_point:
+                if moving_up and not pitch_point and ind > 10:
                     pitch_point = prev[0]
                 break
         prev = n
@@ -257,12 +281,29 @@ def is_point_inside_zone(point, zone_coordinates):
     result = cv2.pointPolygonTest(zone_polygon, point, False)
     return result >= 0  
 
+
+def check_point_in_polygon(detected_boxes, point):
+    detected_boxes = sorted(detected_boxes, key=lambda box: box[1])  # Sort by y1
+
+    # Step 2: Define the polygon using the specified connections
+    (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = detected_boxes
+    polygon_points = [
+        [x2a, y1a],  # Upper right of first box
+        [x2b, y2b],  # Lower right of second box
+        [x1b, y2b],  # Lower left of second box
+        [x1a, y1a],  # Upper left of first box
+    ]
+    
+    # Convert polygon points to the required NumPy format
+    polygon = np.array(polygon_points, np.int32).reshape((-1, 1, 2))
+
+    # Step 3: Check if the point lies inside the polygon
+    result = cv2.pointPolygonTest(polygon, point, False)
+    return result >= 0  # True if inside or on the edge, False otherwise
+
 if __name__ == '__main__':
     process_video(input_video_path, output_video_path, stump_img_path)
     
     print("Device",device)
-    print("IMPACT POINT : ",IMPACT_POINT)
-    print("PITCH POINT : ",PITCH_POINT)
     print("Pitching on Inline : ",is_point_inside_zone(PITCH_POINT, IN_LINE))
-    # for i in PIXEL_VALUES:
-    #     print(i)
+    print("Impact on Inline : ",check_point_in_polygon(DETECTED_BOXES, IMPACT_POINT))
