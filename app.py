@@ -19,6 +19,7 @@ stump_detection_model = YOLO('stump_detection.pt').to(device)
 stump_img_path = 'frame6.jpg'
 input_video_path = 'video24.mp4'
 output_video_path = 'output_video.mp4'
+output_image_path = "output_imge.jpg"
 
 COORDINATES = {} # format {'x1': 0, 'y1': 0, 'x2': 0, 'y2': 0}
 DETECTED_BOXES = []
@@ -241,8 +242,12 @@ def process_video(input_video_path, output_video_path, stump_img_path):
                 
                 PITCH_POINT = find_pitch_point(object_positions)
                 cv2.circle(frame, (PITCH_POINT[0], PITCH_POINT[1]), 5, (0, 0, 128), -1)
+                
+            #Saving the last frame
+            cv2.imwrite(output_image_path, frame)
+            
 
-        previous_positions = current_positions
+        previous_positions = current_positions 
         
         out.write(frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -255,8 +260,10 @@ def process_video(input_video_path, output_video_path, stump_img_path):
     cv2.destroyAllWindows()
     shutil.rmtree(temp_dir)
 
+PITCH_FRAME = None
 # Function to find the pitch point
 def find_pitch_point(object_positions):
+    global PITCH_FRAME 
     pitch_point = None
     moving_up = False
     prev = [(-1 , float('inf'))]
@@ -271,10 +278,14 @@ def find_pitch_point(object_positions):
         for j in DETECTED_BOXES:
             if j[1] < n[0][1] or j[3] < n[0][1]:
                 if moving_up and not pitch_point and ind > 10:
+                    print("object positions",object_positions[:ind])
                     pitch_point = prev[0]
                 break
         prev = n
-    return pitch_point
+    if pitch_point:
+        PITCH_FRAME = ind
+        return pitch_point
+    return [-1,-1]
 
 def is_point_inside_zone(point, zone_coordinates):
     zone_polygon = np.array(zone_coordinates, np.int32).reshape((-1, 1, 2))
@@ -300,6 +311,39 @@ def check_point_in_polygon(detected_boxes, point):
     # Step 3: Check if the point lies inside the polygon
     result = cv2.pointPolygonTest(polygon, point, False)
     return result >= 0  # True if inside or on the edge, False otherwise
+
+def draw_smooth_curve(object_positions, frame):
+    # Extract points from object_positions
+    points = np.array([pos[0] for pos in object_positions], dtype=np.int32)
+
+    # Create an overlay to draw the curve
+    overlay = frame.copy()
+
+    # Generate a smooth curve using polynomial fitting
+    if len(points) > 3:  # Ensure we have enough points for smoothing
+        degree = 3  # Degree of the polynomial fit
+        x, y = points[:, 0], points[:, 1]
+        z = np.polyfit(x, y, degree)  # Polynomial fit
+        p = np.poly1d(z)  # Create polynomial equation
+
+        # Generate smooth x and y values
+        x_smooth = np.linspace(min(x), max(x), 300)
+        y_smooth = p(x_smooth).astype(int)
+        
+        # Stack x and y for smooth points
+        smooth_points = np.column_stack((x_smooth.astype(int), y_smooth))
+        
+        # Draw the smooth curve
+        cv2.polylines(overlay, [smooth_points], isClosed=False, color=(0, 0, 255), thickness=3)
+    else:
+        # If not enough points for a curve, draw simple lines between points
+        cv2.polylines(overlay, [points], isClosed=False, color=(0, 0, 255), thickness=3)
+
+    # Blend the overlay with the original frame
+    opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
+    frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
+
+    return frame
 
 if __name__ == '__main__':
     process_video(input_video_path, output_video_path, stump_img_path)
