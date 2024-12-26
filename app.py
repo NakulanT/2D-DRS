@@ -17,9 +17,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ball_detection_model = YOLO('ball_segmentation.pt').to(device)
 stump_detection_model = YOLO('stump_detection.pt').to(device)
 stump_img_path = 'frame6.jpg'
-input_video_path = 'video24.mp4'
+input_video_path = 'video20.mp4'
 output_video_path = 'output_video.mp4'
-output_image_path = "output_imge.jpg"
+output_image_path = "output_image.jpg"
 
 COORDINATES = {} # format {'x1': 0, 'y1': 0, 'x2': 0, 'y2': 0}
 DETECTED_BOXES = []
@@ -31,6 +31,7 @@ PIXEL_VALUES = []
 IN_LINE = []
 PITCH_POINT = None
 IMPACT_POINT = None
+RESULT_FRAME = None
 
 def detect_and_crop(image, class_name='stumps'):
     global CROPS, TEMP_DIR
@@ -87,7 +88,7 @@ def detect_and_draw_boxes_with_overlay(image, stump_img, class_name='stumps'):
     return annotated_image
 
 def process_video(input_video_path, output_video_path, stump_img_path):
-    global COORDINATES , BELOW_STUMP ,PITCH_BOUNCE , PIXEL_VALUES, PITCH_POINT, IMPACT_POINT
+    global COORDINATES , BELOW_STUMP ,PITCH_BOUNCE , PIXEL_VALUES, PITCH_POINT, IMPACT_POINT, RESULT_FRAME
     kf = KalmanFilter()
     cap = cv2.VideoCapture(input_video_path)
 
@@ -242,9 +243,11 @@ def process_video(input_video_path, output_video_path, stump_img_path):
                 
                 PITCH_POINT = find_pitch_point(object_positions)
                 cv2.circle(frame, (PITCH_POINT[0], PITCH_POINT[1]), 5, (0, 0, 128), -1)
+            for obj in object_positions:
+                print(obj)
                 
             #Saving the last frame
-            cv2.imwrite(output_image_path, frame)
+            RESULT_FRAME = frame
             
 
         previous_positions = current_positions 
@@ -278,7 +281,6 @@ def find_pitch_point(object_positions):
         for j in DETECTED_BOXES:
             if j[1] < n[0][1] or j[3] < n[0][1]:
                 if moving_up and not pitch_point and ind > 10:
-                    print("object positions",object_positions[:ind])
                     pitch_point = prev[0]
                 break
         prev = n
@@ -311,6 +313,48 @@ def check_point_in_polygon(detected_boxes, point):
     # Step 3: Check if the point lies inside the polygon
     result = cv2.pointPolygonTest(polygon, point, False)
     return result >= 0  # True if inside or on the edge, False otherwise
+
+
+def check_point_in_polygon_or_side(detected_boxes, point, offside):
+    # Step 1: Sort bounding boxes based on y1 in ascending order
+    detected_boxes = sorted(detected_boxes, key=lambda box: box[1])  # Sort by y1
+
+    # Define the polygon using the edges of the detected boxes
+    (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = detected_boxes
+    polygon = [
+        [x2a, y1a],  # Upper right of first box
+        [x2b, y2b],  # Lower right of second box
+        [x1b, y2b],  # Lower left of second box
+        [x1a, y1a],  # Upper left of first box
+    ]
+    # Extract the point's y-coordinate
+    _, y = point
+    x_values = []
+
+    # Check if the y-coordinate intersects the polygon
+    for i in range(len(polygon)):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % len(polygon)]  # Wrap around to form a closed polygon
+
+        # Check if the point's y lies within the edge's y range
+        if min(y1, y2) <= y <= max(y1, y2) and y1 != y2:  # Avoid division by zero
+            # Calculate x-coordinate using linear interpolation
+            x = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            x_values.append(x)
+
+    # Sort x-values to get boundaries
+    x_values = sorted(x_values)
+
+    if len(x_values) == 2:
+        if offside:
+            return point[0] < x_values[1]  # True if right side
+        else:
+            return  x_values[0] < point[0] # True if left side
+
+    # Default return False if x_values are not valid
+    return False
+
+
 
 def draw_smooth_curve(object_positions, frame):
     # Extract points from object_positions
@@ -346,8 +390,36 @@ def draw_smooth_curve(object_positions, frame):
     return frame
 
 if __name__ == '__main__':
+    
     process_video(input_video_path, output_video_path, stump_img_path)
     
     print("Device",device)
-    print("Pitching on Inline : ",is_point_inside_zone(PITCH_POINT, IN_LINE))
-    print("Impact on Inline : ",check_point_in_polygon(DETECTED_BOXES, IMPACT_POINT))
+    
+    impact = check_point_in_polygon(DETECTED_BOXES, IMPACT_POINT)
+    player = "right_handed"
+    if player == "right_handed":
+        pitching = check_point_in_polygon_or_side(DETECTED_BOXES, PITCH_POINT, True)
+    else:
+        pitching = check_point_in_polygon_or_side(DETECTED_BOXES, PITCH_POINT, False)
+
+    # Prepare the text
+    impact_text = "Impact : " + ("Inside" if impact else "Outside")
+    pitching_text = "Pitching : " + ("Right-handed" if pitching else "Left-handed")
+
+
+    # Define font and size for text
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 1
+    font_thickness = 2
+    color = (255, 255, 255)  # White text
+    line_type = cv2.LINE_AA
+
+    # Add text to the image
+    text_y_offset = 30  # Vertical offset for text
+
+    cv2.putText(RESULT_FRAME, "Pitching: " + pitching_text, (10, text_y_offset), font, font_scale, color, font_thickness, line_type)
+    text_y_offset += 40  # Adjust the vertical position for the next text
+
+    cv2.putText(RESULT_FRAME, impact_text, (10, text_y_offset), font, font_scale, color, font_thickness, line_type)
+
+    cv2.imwrite(output_image_path, RESULT_FRAME)
