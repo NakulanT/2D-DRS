@@ -16,8 +16,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Load models
 ball_detection_model = YOLO('ball_segmentation.pt').to(device)
 stump_detection_model = YOLO('stump_detection.pt').to(device)
-stump_img_path = 'frame6.jpg'
-input_video_path = 'video20.mp4'
+stump_img_path = 'frame4.jpg'
+input_video_path = 'video25.mp4'
 output_video_path = 'output_video.mp4'
 output_image_path = "output_image.jpg"
 
@@ -31,6 +31,7 @@ PIXEL_VALUES = []
 IN_LINE = []
 PITCH_POINT = None
 IMPACT_POINT = None
+HITTING_STUMPS = None
 RESULT_FRAME = None
 
 def detect_and_crop(image, class_name='stumps'):
@@ -88,7 +89,7 @@ def detect_and_draw_boxes_with_overlay(image, stump_img, class_name='stumps'):
     return annotated_image
 
 def process_video(input_video_path, output_video_path, stump_img_path):
-    global COORDINATES , BELOW_STUMP ,PITCH_BOUNCE , PIXEL_VALUES, PITCH_POINT, IMPACT_POINT, RESULT_FRAME
+    global COORDINATES , BELOW_STUMP ,PITCH_BOUNCE , PIXEL_VALUES, PITCH_POINT, IMPACT_POINT, HITTING_STUMPS, RESULT_FRAME
     kf = KalmanFilter()
     cap = cv2.VideoCapture(input_video_path)
 
@@ -98,10 +99,13 @@ def process_video(input_video_path, output_video_path, stump_img_path):
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
-    object_positions = []
+    object_positions_before_pitch = []
+    object_positions_after_pitch = []
     previous_positions = []
     frame_number = 0
-    last_predicted = None
+    selected_stump= None
+    seaming = None
+    
 
     stump_img = cv2.imread(stump_img_path)
 
@@ -160,31 +164,49 @@ def process_video(input_video_path, output_video_path, stump_img_path):
 
 
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        if current_positions:
-            object_positions.append(current_positions)
+        if PITCH_BOUNCE and current_positions and len(object_positions_after_pitch) > 1 and seaming:
+            if seaming == "Right":
+                if current_positions[0][0] > object_positions_after_pitch[-1][0][0]:
+                    print("seaming opposite side !!")
+            if seaming == "Left":
+                if current_positions[0][0] < object_positions_after_pitch[-1][0][0]:
+                    print("seaming opposite side !!")
+                    
+
         
+        if not selected_stump:  #selected stumps holds the coordinates of the batting stumps
+            selected_stump = min(DETECTED_BOXES, key=lambda stump: stump[1])
         
-        if not BELOW_STUMP and current_positions and (current_positions[0][1] > DETECTED_BOXES[0][1]  or current_positions[0][1] > DETECTED_BOXES[1][1]):
+        if not BELOW_STUMP and current_positions and current_positions[0][1] > selected_stump[1] :
             print("Ball below stump height !!")
             BELOW_STUMP = True
         
+        if BELOW_STUMP and current_positions and current_positions[0][1] < selected_stump[1]:
+            print("Ball above stump height !!")
+            BELOW_STUMP = False
+        
         if BELOW_STUMP and not PITCH_BOUNCE and previous_positions and current_positions:
             if current_positions[0][1] < previous_positions[0][1]:
-                print("Pitch bounce detected !!")
+                PITCH_POINT = previous_positions[0]
                 PITCH_BOUNCE = True
-            pass
+                object_positions_before_pitch = remove_extra_detections(object_positions_before_pitch)
             
-        if BELOW_STUMP and PITCH_BOUNCE:
-            for i, (center_x, center_y) in enumerate(current_positions):
-                predicted = kf.predict(center_x, center_y)
-                if predicted is not None:
-                    predicted_x, predicted_y = predicted
-                    last_predicted = (predicted_x, predicted_y)
-                    
+        if PITCH_BOUNCE and current_positions:
+            object_positions_after_pitch.append(current_positions)
+        elif current_positions:
+            object_positions_before_pitch.append(current_positions)
+            
+        if PITCH_BOUNCE and current_positions and len(object_positions_after_pitch) > 1 and not seaming:
+            if object_positions_after_pitch[-1][0][0] < object_positions_after_pitch[-2][0][0]:
+                seaming = "Right"
+            elif object_positions_after_pitch[-1][0][0] > object_positions_after_pitch[-2][0][0]:
+                seaming = "Left"
+                
+            
         # Draw connecting lines between consecutive positions of detected objects
-        for i in range(1, len(object_positions)):
-            prev_positions = object_positions[i - 1]
-            curr_positions = object_positions[i]
+        for i in range(1, len(object_positions_before_pitch)):
+            prev_positions = object_positions_before_pitch[i - 1]
+            curr_positions = object_positions_before_pitch[i]
             
             # Ensure both frames have detected positions to connect
             if prev_positions and curr_positions:
@@ -200,100 +222,107 @@ def process_video(input_video_path, output_video_path, stump_img_path):
                 # Blend the overlay with the original frame
                 opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
                 frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
-                    
         
-        if frame_number == int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) and last_predicted :            
+        if object_positions_after_pitch and object_positions_before_pitch:
+            cv2.line(frame, object_positions_before_pitch[-1][0], object_positions_after_pitch[0][0], (0, 0, 255), 7)
+
             
-            predicted_positions = [object_positions[-1]]
-            while last_predicted[1] > DETECTED_BOXES[0][1] or last_predicted[1] > DETECTED_BOXES[1][1]:
-                if last_predicted:
-                    last_predicted = kf.predict(last_predicted[0], last_predicted[1])
-                    # cv2.circle(frame, (int(last_predicted[0]), int(last_predicted[1])), 7, (0, 255, 0), -1)
-                    predicted_positions.append([(int(last_predicted[0]), int(last_predicted[1]))])
-                if last_predicted[0] < 0:
-                    break
-                    
-            
-            # Draw connecting lines between consecutive positions of predicted objects
-            for i in range(1, len(predicted_positions)):
-                prev_positions = predicted_positions[i - 1]
-                curr_positions = predicted_positions[i]
+        if len(object_positions_after_pitch) > 1:
+
+                # Get the first detected position
+                first_positions = object_positions_after_pitch[0]
+                # Get the last detected position
+                last_positions = object_positions_after_pitch[-1]
                 
                 # Ensure both frames have detected positions to connect
-                if prev_positions and curr_positions:
-                    # Use the first detected object in each frame (or modify if there are multiple)
-                    prev_x, prev_y = prev_positions[0]
-                    curr_x, curr_y = curr_positions[0]
+                if first_positions and last_positions:
+                    # Use the first detected object in the first and last frames 
+                    first_x, first_y = first_positions[0]
+                    last_x, last_y = last_positions[0]
                     
                     # Create an overlay
                     overlay = frame.copy()
                     
-                    # Draw line on the overlay
-                    cv2.line(overlay, (prev_x, prev_y), (curr_x, curr_y), ((255, 0, 0)), 7)
+                    # 1. Draw the line connecting the first and last points (in red)
+                    cv2.line(overlay, (first_x, first_y), (last_x, last_y), (0, 0, 255), 7)
                     
                     # Blend the overlay with the original frame
                     opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
                     frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
-            if len(predicted_positions) > 0:
-                cx,cy = predicted_positions[-1][0]
-                cv2.circle(frame, (cx, cy), 5, (0, 0, 128), -1)
-            
-                IMPACT_POINT = object_positions[-1][0]
-                cv2.circle(frame, (IMPACT_POINT[0], IMPACT_POINT[1]), 5, (0, 0, 128), -1)
+
+        
+        if frame_number == int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) :
+            y_limit = min(DETECTED_BOXES[0][1], DETECTED_BOXES[1][1])
+            HITTING_STUMPS = object_positions_after_pitch[-1][0] 
+
+            # Draw connecting lines between consecutive positions of detected objects
+            if len(object_positions_after_pitch) > 1 and BELOW_STUMP:
+                # Get the first detected position
+                first_positions = object_positions_after_pitch[0]
+                # Get the last detected position
+                last_positions = object_positions_after_pitch[-1]
                 
-                PITCH_POINT = find_pitch_point(object_positions)
-                cv2.circle(frame, (PITCH_POINT[0], PITCH_POINT[1]), 5, (0, 0, 128), -1)
-            for obj in object_positions:
-                print(obj)
-                
-            #Saving the last frame
-            RESULT_FRAME = frame
+                # Ensure both frames have detected positions to connect
+                if first_positions and last_positions:
+                    # Use the first detected object in the first and last frames
+                    first_x, first_y = first_positions[0]
+                    last_x, last_y = last_positions[0]
+                    
+                    # Create an overlay
+                    overlay = frame.copy()
+                    
+                    # 1. Draw the line connecting the first and last points (in red)
+                    cv2.line(overlay, (first_x, first_y), (last_x, last_y), (0, 0, 255), 7)
+                    
+                    # Blend the overlay with the original frame
+                    opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
+                    frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
+                    
+                    # Calculate the slope of the line
+                    if last_y != first_y:  # Avoid division by zero
+                        slope = (last_x - first_x) / (last_y - first_y)
+                    else:
+                        slope = float('inf')  # Vertical line
+
+                    # Calculate the x-coordinate for the y_limit based on the slope
+                    if slope != float('inf'):
+                        extended_x = int(last_x + slope * (y_limit - last_y))
+                    else:
+                        extended_x = last_x  # For a vertical line, x remains constant
+                    
+                    # 2. Draw the extended predicted line to the y_limit (in blue)
+                    cv2.line(frame, (last_x, last_y), (extended_x, y_limit), (255, 0, 0), 7) 
+                    opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
+                    frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
+                    
+                    HITTING_STUMPS = (extended_x, y_limit) 
             
 
+            IMPACT_POINT = object_positions_after_pitch[-1][0]   
+            
+            RESULT_FRAME = frame
+            print("Seaming" , seaming)
         previous_positions = current_positions 
         
         out.write(frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     
-
-
     cap.release()
     out.release()
     cv2.destroyAllWindows()
     shutil.rmtree(temp_dir)
-
-PITCH_FRAME = None
-# Function to find the pitch point
-def find_pitch_point(object_positions):
-    global PITCH_FRAME 
-    pitch_point = None
-    moving_up = False
-    prev = [(-1 , float('inf'))]
-    for ind, n in enumerate(object_positions):
-        if len(n) > 1:
-            continue
-        if (prev[0][1] - n[0][1]) < 0:
-            moving_up = False
-        else:
-            moving_up = True
-        #checking if the ball is under the stump and moving up
-        for j in DETECTED_BOXES:
-            if j[1] < n[0][1] or j[3] < n[0][1]:
-                if moving_up and not pitch_point and ind > 10:
-                    pitch_point = prev[0]
-                break
-        prev = n
-    if pitch_point:
-        PITCH_FRAME = ind
-        return pitch_point
-    return [-1,-1]
-
-def is_point_inside_zone(point, zone_coordinates):
-    zone_polygon = np.array(zone_coordinates, np.int32).reshape((-1, 1, 2))
-    result = cv2.pointPolygonTest(zone_polygon, point, False)
-    return result >= 0  
-
+    
+def remove_extra_detections(object_positions):
+    object_positions.reverse()
+    prev = float('inf')
+    for ind , pos in enumerate(object_positions):
+        if pos[0][1] > prev:
+            break
+        prev = pos[0][1]
+    object_positions = object_positions[:ind]
+    object_positions.reverse()
+    return object_positions
 
 def check_point_in_polygon(detected_boxes, point):
     detected_boxes = sorted(detected_boxes, key=lambda box: box[1])  # Sort by y1
@@ -344,82 +373,104 @@ def check_point_in_polygon_or_side(detected_boxes, point, offside):
 
     # Sort x-values to get boundaries
     x_values = sorted(x_values)
-
+    
     if len(x_values) == 2:
-        if offside:
-            return point[0] < x_values[1]  # True if right side
-        else:
-            return  x_values[0] < point[0] # True if left side
-
-    # Default return False if x_values are not valid
+        if x_values[0] <= point[0] <= x_values[1]:
+            return "In Line"
+        elif point[0] < x_values[0]:
+            return "Outside off"
+        elif point[0] > x_values[1]:
+            return "Outside leg"
+        
     return False
 
-
-
-def draw_smooth_curve(object_positions, frame):
-    # Extract points from object_positions
-    points = np.array([pos[0] for pos in object_positions], dtype=np.int32)
-
-    # Create an overlay to draw the curve
-    overlay = frame.copy()
-
-    # Generate a smooth curve using polynomial fitting
-    if len(points) > 3:  # Ensure we have enough points for smoothing
-        degree = 3  # Degree of the polynomial fit
-        x, y = points[:, 0], points[:, 1]
-        z = np.polyfit(x, y, degree)  # Polynomial fit
-        p = np.poly1d(z)  # Create polynomial equation
-
-        # Generate smooth x and y values
-        x_smooth = np.linspace(min(x), max(x), 300)
-        y_smooth = p(x_smooth).astype(int)
-        
-        # Stack x and y for smooth points
-        smooth_points = np.column_stack((x_smooth.astype(int), y_smooth))
-        
-        # Draw the smooth curve
-        cv2.polylines(overlay, [smooth_points], isClosed=False, color=(0, 0, 255), thickness=3)
-    else:
-        # If not enough points for a curve, draw simple lines between points
-        cv2.polylines(overlay, [points], isClosed=False, color=(0, 0, 255), thickness=3)
-
-    # Blend the overlay with the original frame
-    opacity = 0.5  # Adjust the opacity level (0.0 to 1.0)
-    frame = cv2.addWeighted(overlay, opacity, frame, 1 - opacity, 0)
-
-    return frame
-
-if __name__ == '__main__':
+def hitting_stumps(stump_coordinates, point):
+    # Find the stump with the lowest y1 value
+    selected_stump = min(stump_coordinates, key=lambda stump: stump[1])
     
-    process_video(input_video_path, output_video_path, stump_img_path)
+    x1, y1, x2, y2 = selected_stump
+    x, y = point
     
-    print("Device",device)
+    # Check if the point is within the bounds of the selected stump rectangle
+    if x1 <= x <= x2 and y1 <= y <= y2:
+        return "Hitting"
+    return "Not-hitting"
+
+def draw_result(player):
+    global RESULT_FRAME, DETECTED_BOXES, IMPACT_POINT, PITCH_POINT, HITTING_STUMPS
     
+    # Determine impact, pitching, and hitting stumps
     impact = check_point_in_polygon(DETECTED_BOXES, IMPACT_POINT)
-    player = "right_handed"
     if player == "right_handed":
         pitching = check_point_in_polygon_or_side(DETECTED_BOXES, PITCH_POINT, True)
+        desired_side = "Outside off"
     else:
         pitching = check_point_in_polygon_or_side(DETECTED_BOXES, PITCH_POINT, False)
-
-    # Prepare the text
-    impact_text = "Impact : " + ("Inside" if impact else "Outside")
-    pitching_text = "Pitching : " + ("Right-handed" if pitching else "Left-handed")
-
-
-    # Define font and size for text
+        desired_side = "Outside leg"
+    
+    hitting_text = hitting_stumps(DETECTED_BOXES, HITTING_STUMPS)
+    impact_text = "Inside" if impact else "Outside"
+    pitching_text = pitching
+    
+    # Define font and styling attributes
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1
+    font_scale = 0.8
     font_thickness = 2
-    color = (255, 255, 255)  # White text
+    colors = {
+        "header_bg": (0, 0, 0),     # Black for headers
+        "text": (255, 255, 255),    # White text
+        "border": (200, 200, 200),  # Gray border
+        "result_bg_red": (0, 0, 255),  # Red for default results
+        "result_bg_green": (0, 255, 0),  # Green for successful results
+    }
     line_type = cv2.LINE_AA
 
-    # Add text to the image
-    text_y_offset = 30  # Vertical offset for text
+    # Define the header-result text pairs
+    texts = [
+        ("WICKETS", hitting_text, hitting_text == "Hitting"),  # Green if hitting stumps
+        ("IMPACT", impact_text, impact),                  # Green if impact is "Inside"
+        ("PITCHING", pitching_text,pitching == "In Line" or pitching == desired_side),               # Default color for pitching
+    ]
 
-    cv2.putText(RESULT_FRAME, "Pitching: " + pitching_text, (10, text_y_offset), font, font_scale, color, font_thickness, line_type)
-    text_y_offset += 40  # Adjust the vertical position for the next text
+    # Box dimensions and layout settings
+    x_offset, y_offset = 20, 50
+    box_width, box_height = 220, 50
+    spacing = 10
 
-    cv2.putText(RESULT_FRAME, impact_text, (10, text_y_offset), font, font_scale, color, font_thickness, line_type)
+    # Function to draw a box with centered text
+    def draw_box_with_text(frame, top_left, width, height, bg_color, text, text_color):
+        # Draw the box
+        bottom_right = (top_left[0] + width, top_left[1] + height)
+        cv2.rectangle(frame, top_left, bottom_right, colors["border"], thickness=2)
+        cv2.rectangle(frame, (top_left[0] + 2, top_left[1] + 2), 
+                      (bottom_right[0] - 2, bottom_right[1] - 2), bg_color, thickness=-1)
+        
+        # Add centered text
+        text_size, _ = cv2.getTextSize(text, font, font_scale, font_thickness)
+        text_x = top_left[0] + (width - text_size[0]) // 2
+        text_y = top_left[1] + (height + text_size[1]) // 2
+        cv2.putText(frame, text, (text_x, text_y), font, font_scale, text_color, font_thickness, line_type)
 
+    # Draw header-result pairs
+    for header, result, success in texts:
+        # Determine result box color
+        result_bg_color = colors["result_bg_red"] if success else colors["result_bg_green"]
+        
+        # Draw header box
+        draw_box_with_text(RESULT_FRAME, (x_offset, y_offset), box_width, box_height, colors["header_bg"], header, colors["text"])
+        
+        # Draw result box below the header
+        draw_box_with_text(RESULT_FRAME, (x_offset, y_offset + box_height), box_width, box_height, result_bg_color, result, colors["text"])
+        
+        # Update y_offset for the next pair
+        y_offset += 2 * box_height + spacing
+
+    # Save the final image
     cv2.imwrite(output_image_path, RESULT_FRAME)
+
+
+
+if __name__ == '__main__':
+    process_video(input_video_path, output_video_path, stump_img_path)
+    print("Device",device)
+    draw_result("right_handed")
