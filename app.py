@@ -16,8 +16,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Load models
 ball_detection_model = YOLO('ball_segmentation.pt').to(device)
 stump_detection_model = YOLO('stump_detection.pt').to(device)
-stump_img_path = 'frame4.jpg'
-input_video_path = 'video25.mp4'
+stump_img_path = 'frame6.jpg'
+input_video_path = 'video19.mp4'
 output_video_path = 'output_video.mp4'
 output_image_path = "output_image.jpg"
 
@@ -302,6 +302,13 @@ def process_video(input_video_path, output_video_path, stump_img_path):
             
             RESULT_FRAME = frame
             print("Seaming" , seaming)
+            temp = []
+            prev = 0
+            for i in range(len(object_positions_after_pitch)):
+                if i > 0:
+                    temp.append(abs(prev - object_positions_after_pitch[i][0][0]))
+                prev = object_positions_after_pitch[i][0][0]
+            print("temp",temp)
         previous_positions = current_positions 
         
         out.write(frame)
