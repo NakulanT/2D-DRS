@@ -1,39 +1,76 @@
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { useState } from 'react';
-import { Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useState, useRef } from 'react';
+import { Button, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native';
 
-export default function App() {
-  const [facing, setFacing] = useState('back')
+export default function record() {
+  const [facing, setFacing] = useState('back');
   const [permission, requestPermission] = useCameraPermissions();
+  const [photo, setPhoto] = useState(null);
+  const cameraRef = useRef(null);
 
   if (!permission) {
-    // Camera permissions are still loading.
     return <View />;
   }
 
   if (!permission.granted) {
-    // Camera permissions are not granted yet.
     return (
       <View style={styles.container}>
         <Text style={styles.message}>We need your permission to show the camera</Text>
-        <Button onPress={requestPermission} title="grant permission" />
+        <Button onPress={requestPermission} title="Grant Permission" />
       </View>
     );
   }
 
   function toggleCameraFacing() {
-    setFacing(current => (current === 'back' ? 'front' : 'back'));
+    setFacing((current) => (current === 'back' ? 'front' : 'back'));
+  }
+
+  async function takePhoto() {
+    if (cameraRef.current) {
+      const photoData = await cameraRef.current.takePictureAsync();
+      setPhoto(photoData.uri);
+    }
+  }
+
+  function cancelPreview() {
+    setPhoto(null);
   }
 
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} facing={facing}>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.button} onPress={toggleCameraFacing}>
-            <Text style={styles.text}>Flip Camera</Text>
+      {!photo ? (
+        <>
+          <CameraView
+            ref={cameraRef}
+            style={styles.camera}
+            facing={facing}
+            onTap={(event) => {
+              if (cameraRef.current) {
+                cameraRef.current.focus(event.nativeEvent);
+              }
+            }}
+          >
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity style={styles.button} onPress={toggleCameraFacing}>
+                <Text style={styles.text}>Flip Camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.button} onPress={takePhoto}>
+                <Text style={styles.text}>Take Photo</Text>
+              </TouchableOpacity>
+            </View>
+          </CameraView>
+        </>
+      ) : (
+        <View style={styles.previewContainer}>
+          <Image source={{ uri: photo }} style={styles.preview} />
+          <TouchableOpacity style={styles.cancelButton} onPress={cancelPreview}>
+            <Text style={styles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.OkButton} onPress={cancelPreview}>
+            <Text style={styles.OkText}>Ok</Text>
           </TouchableOpacity>
         </View>
-      </CameraView>
+      )}
     </View>
   );
 }
@@ -53,16 +90,51 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flex: 1,
     flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
     backgroundColor: 'transparent',
-    margin: 64,
+    paddingBottom: 20,
   },
   button: {
-    flex: 1,
-    alignSelf: 'flex-end',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 10,
+    borderRadius: 10,
   },
   text: {
-    fontSize: 24,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  previewContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'black',
+  },
+  preview: {
+    width: '100%',
+    height: '80%',
+    resizeMode: 'contain',
+  },
+  cancelButton: {
+    marginTop: 10,
+    backgroundColor: 'red',
+    padding: 10,
+    borderRadius: 10,
+  },
+  OkButton: {
+    marginTop: 10,
+    backgroundColor: 'green',
+    padding: 10,
+    borderRadius: 10,
+  },
+  cancelText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  OkText: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: 'white',
   },
