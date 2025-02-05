@@ -29,8 +29,34 @@ export default function record() {
     if (cameraRef.current) {
       const photoData = await cameraRef.current.takePictureAsync();
       setPhoto(photoData.uri);
+      uploadPhoto(photoData.uri);
     }
   }
+  
+    async function uploadPhoto(uri) {
+      const formData = new FormData();
+      formData.append("file", {
+        uri: uri,
+        name: "image.jpg",
+        type: "image/jpeg",
+      });
+    
+      try {
+        const response = await fetch("", {
+          method: "POST",
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          body: formData,
+        });
+    
+        const result = await response.json();
+        console.log("Upload Success:", result);
+      } catch (error) {
+        console.error("Upload Error:", error);
+      }
+    }
+  
 
   function cancelPreview() {
     setPhoto(null);
