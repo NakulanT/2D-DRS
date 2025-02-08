@@ -11,14 +11,14 @@ import shutil
 
 
 class LBWDetectionModel:
-    def __init__(self):
+    def __init__(self,frame,vid):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Load models
         self.ball_detection_model = YOLO('ball_segmentation.pt').to(self.device)
         self.stump_detection_model = YOLO('stump_detection.pt').to(self.device)
-        self.stump_img_path = 'frame6.jpg'
-        self.input_video_path = 'video19.mp4'
+        self.stump_img_path = frame
+        self.input_video_path = vid
         self.output_video_path = 'output_video.mp4'
         self.output_image_path = "output_image.jpg"
         
