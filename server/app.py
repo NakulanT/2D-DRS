@@ -7,9 +7,18 @@ app = FastAPI()
 def hello():
     return {"message": "Hello World!"}
 
-if __name__ == "__main__":
+@app.get("/results")
+def predict(input_video_path: str, stump_img_path: str):
     model = LBWDetectionModel()
-    print(model.get_result(input_video_path='video21.mp4', stump_img_path='frame6.jpg'))
+    return model.get_result(input_video_path, stump_img_path)
+
+#this is used for cheack stumps in the inout image
+@app.get("/check_stumps")
+def check_stumps(input_image_path: str):
+    model = LBWDetectionModel()
+    return model.check_stumps(input_image_path)
+
+if __name__ == "__main__":
     
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

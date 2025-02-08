@@ -511,3 +511,12 @@ class LBWDetectionModel:
             return "Results saved successfully!"
         except Exception as e:
             return str(e)
+    
+    def check_stumps(self,stump_img_path):
+        try:
+            self.detect_and_draw_boxes_with_overlay(stump_img_path, stump_img=stump_img_path, class_name='stumps')
+            if len(self.DETECTED_BOXES) == 2:
+                return "Stumps detected successfully!"
+            return "Stumps not detected!"
+        except Exception as e:
+            return str(e)
