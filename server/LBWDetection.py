@@ -11,14 +11,14 @@ import shutil
 
 
 class LBWDetectionModel:
-    def __init__(self,frame,vid):
+    def __init__(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Load models
         self.ball_detection_model = YOLO('ball_segmentation.pt').to(self.device)
         self.stump_detection_model = YOLO('stump_detection.pt').to(self.device)
-        self.stump_img_path = frame
-        self.input_video_path = vid
+        self.stump_img_path = None
+        self.input_video_path = None
         self.output_video_path = 'output_video.mp4'
         self.output_image_path = "output_image.jpg"
         
@@ -74,7 +74,7 @@ class LBWDetectionModel:
                 if class_label == class_name:
                     x1, y1, x2, y2 = map(int, box)
                     self.DETECTED_BOXES.append((x1, y1, x2, y2))
-        
+        print("Detected boxes:", self.DETECTED_BOXES)
         if len(self.DETECTED_BOXES) == 2:
             (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = self.DETECTED_BOXES
             pts = np.array([[x2b, y2b], [x2a, y2a], [x1a, y2a], [x1b, y2b]], np.int32).reshape((-1, 1, 2))
@@ -514,9 +514,11 @@ class LBWDetectionModel:
     
     def check_stumps(self,stump_img_path):
         try:
+            self.stump_img_path = stump_img_path
             self.detect_and_draw_boxes_with_overlay(stump_img_path, stump_img=stump_img_path, class_name='stumps')
+            print(self.DETECTED_BOXES)
             if len(self.DETECTED_BOXES) == 2:
-                return "Stumps detected successfully!"
-            return "Stumps not detected!"
+                return True
+            return False
         except Exception as e:
             return str(e)
