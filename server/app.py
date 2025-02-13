@@ -16,7 +16,10 @@ def predict(input_video_path: str, stump_img_path: str):
 @app.get("/check_stumps")
 def check_stumps(input_image_path: str):
     model = LBWDetectionModel()
-    return model.check_stumps(input_image_path)
+    if model.check_stumps(input_image_path):
+        return {"message": "Stumps are present in the image"}
+    else:    
+        return {"message": "Stumps are not present in the image"}
 
 if __name__ == "__main__":
     import uvicorn
