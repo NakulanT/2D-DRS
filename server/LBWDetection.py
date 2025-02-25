@@ -508,8 +508,8 @@ class LBWDetectionModel:
             self.process_video()
             self.draw_result("right_handed")
             print("Device:", self.device)
-            #return self.output_image_path
-            return "Results saved successfully!"
+            return self.output_image_path
+            # return self.output
         except Exception as e:
             return str(e)
     

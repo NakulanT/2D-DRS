@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse,FileResponse
 from PIL import Image
 import numpy as np
 from io import BytesIO
@@ -103,7 +103,8 @@ async def final_result(video: UploadFile = File(...), stump_img: UploadFile = Fi
         
         logger.info(f"Processing complete. Result: {result}")
 
-        return JSONResponse(content=result)
+        # return JSONResponse(content=result)
+        return FileResponse(result, media_type="image/jpeg", filename="output_image.jpg")
 
     except HTTPException as e:
         logger.error(f"HTTP error: {e.detail}")
