@@ -508,10 +508,74 @@ class LBWDetectionModel:
             self.process_video()
             self.draw_result("right_handed")
             print("Device:", self.device)
+            if not os.path.exists(self.output_image_path):
+                raise FileNotFoundError(f"Output image {self.output_image_path} does not exist!")
             return self.output_image_path
-            # return self.output
+            # return "Results saved successfully!"
         except Exception as e:
             return str(e)
+    
+    # def get_result(self, input_video_path, stump_img_path):
+    #     try:
+    #         self.input_video_path = input_video_path
+    #         self.stump_img_path = stump_img_path
+
+    #         # Load the stump image to get its dimensions
+    #         stump_img = cv2.imread(self.stump_img_path)
+    #         if stump_img is None:
+    #             raise Exception("Stump image could not be loaded. Check the file path.")
+
+    #         height, width = stump_img.shape[:2]
+
+    #         # Open the video file
+    #         cap = cv2.VideoCapture(self.input_video_path)
+    #         if not cap.isOpened():
+    #             raise Exception("Error opening video file.")
+
+    #         # Get the video properties
+    #         fps = cap.get(cv2.CAP_PROP_FPS)
+    #         if fps == 0:
+    #             fps = 30  # Assign a default FPS if extraction fails
+
+    #         fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Ensure compatibility
+
+    #         # Define output video writer
+    #         output_path_resized = "resized_video.mp4"
+    #         out = cv2.VideoWriter(output_path_resized, fourcc, fps, (width, height))
+
+    #         while cap.isOpened():
+    #             ret, frame = cap.read()
+    #             if not ret:
+    #                 break
+
+    #             # Resize frame to match stump image size
+    #             resized_frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+
+    #             # Write the resized frame to output video
+    #             out.write(resized_frame)
+
+    #         # Release resources
+    #         cap.release()
+    #         out.release()
+
+    #         if not os.path.exists(output_path_resized):
+    #             raise Exception("Resized video was not created successfully.")
+
+    #         # Set the resized video path for further processing
+    #         self.input_video_path = output_path_resized
+
+    #         # Process the resized video
+    #         result = self.process_video()
+    #         if result is None:
+    #             raise Exception("Error processing video. Process returned None.")
+
+    #         self.draw_result("right_handed")
+    #         print("Device:", self.device)
+    #         print(self.output_image_path)
+    #         return self.output_image_path
+
+    #     except Exception as e:
+    #         return str(e)
     
     def check_stumps(self,stump_img_path):
         try:
