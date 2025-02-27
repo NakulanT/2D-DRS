@@ -3,7 +3,6 @@ import { View, Text, TextInput, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
 import * as Google from "expo-auth-session/providers/google"; // ✅ Correct Import
 import * as WebBrowser from "expo-web-browser";
-import { useAuthRequest } from "expo-auth-session";
 
 WebBrowser.maybeCompleteAuthSession(); // ✅ Prevents issues on Web
 
@@ -13,12 +12,10 @@ export default function AuthScreen() {
   const [password, setPassword] = useState("");
   const router = useRouter();
 
-  // ✅ Fix: Add Google Auth Request
+  // ✅ Fix: Google Auth Request with Android and Web Client IDs
   const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: "YOUR_EXPO_CLIENT_ID",
-    androidClientId: "YOUR_ANDROID_CLIENT_ID",
-    iosClientId: "YOUR_IOS_CLIENT_ID",
-    webClientId: "YOUR_WEB_CLIENT_ID",
+    androidClientId: "692055383262-4j9osvfse1voq1v58igjivms0ql5uvsv.apps.googleusercontent.com", // Android Client ID
+    webClientId: "692055383262-r0t5oab7muk0fee2lgk39a5tpgdilmm7.apps.googleusercontent.com", // Web Client ID
   });
 
   useEffect(() => {

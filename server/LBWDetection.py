@@ -501,15 +501,68 @@ class LBWDetectionModel:
         # Save the final image
         cv2.imwrite(self.output_image_path, self.RESULT_FRAME)
 
-    def get_result(self,input_video_path,stump_img_path):
+    # def get_result(self,input_video_path,stump_img_path):
+    #     try:
+    #         self.input_video_path = input_video_path
+    #         self.stump_img_path = stump_img_path    
+    #         self.process_video()
+    #         self.draw_result("right_handed")
+    #         print("Device:", self.device)
+    #         #return self.output_image_path
+    #         return "Results saved successfully!"
+    #     except Exception as e:
+    #         return str(e)
+    
+    def get_result(self, input_video_path, stump_img_path):
         try:
             self.input_video_path = input_video_path
-            self.stump_img_path = stump_img_path    
+            self.stump_img_path = stump_img_path
+
+            # Load the stump image to get its dimensions
+            stump_img = cv2.imread(self.stump_img_path)
+            if stump_img is None:
+                raise Exception("Stump image could not be loaded. Check the file path.")
+
+            height, width = stump_img.shape[:2]
+
+            # Open the video file
+            cap = cv2.VideoCapture(self.input_video_path)
+            if not cap.isOpened():
+                raise Exception("Error opening video file.")
+
+            # Get the video properties
+            fps = int(cap.get(cv2.CAP_PROP_FPS))  
+            fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))  
+
+            # Define output video writer
+            output_path = "resized_video.mp4"  # Adjust as needed
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Resize frame to match stump image size
+                resized_frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+
+                # Write the resized frame to output video
+                out.write(resized_frame)
+
+            # Release video resources
+            cap.release()
+            out.release()
+
+            # Set the resized video path for further processing
+            self.input_video_path = output_path
+
+            # Process the resized video
             self.process_video()
             self.draw_result("right_handed")
             print("Device:", self.device)
-            #return self.output_image_path
+
             return "Results saved successfully!"
+
         except Exception as e:
             return str(e)
     
