@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse,FileResponse
 from PIL import Image
 import numpy as np
 from io import BytesIO
@@ -8,10 +8,20 @@ import tempfile
 import cv2
 import os
 import logging
+from fastapi.middleware.cors import CORSMiddleware
+
 
 from LBWDetection import LBWDetectionModel
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change this to ["http://localhost:8081"] for better security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -46,39 +56,19 @@ async def check_stumps(file: UploadFile = File(...)):
     return JSONResponse(content={"result": False}, media_type="application/json")
 
 
-
-# @app.post("/finalResult")
-# async def final_result(video: UploadFile = File(...), stump_img: UploadFile = File(...)):
-#     """Receive and store a video and a stump image."""
-#     video_path = os.path.join(UPLOAD_DIR, video.filename)
-#     stump_path = os.path.join(UPLOAD_DIR, stump_img.filename)
-
-#     # Save video
-#     with open(video_path, "wb") as buffer:
-#         shutil.copyfileobj(video.file, buffer)
-
-#     # Save stump image
-#     with open(stump_path, "wb") as buffer:
-#         shutil.copyfileobj(stump_img.file, buffer)
-
-#     return JSONResponse(content={"message": "Files received successfully",
-#                                  "video_path": video_path,
-#                                  "stump_path": stump_path})
-
-
-
-# @app.post("/finalResult")
-# async def final_result(video: UploadFile = File(...), stump_img: UploadFile = File(...)):
-#     """Endpoint to receive and send a video and a stump image."""
-#     video_bytes = await video.read()
-#     stump_bytes = await stump_img.read()
-    
-#     return JSONResponse(content={"message": "Files received successfully", "video_filename": video.filename, "stump_filename": stump_img.filename, "video_data": video_bytes.hex(), "stump_data": stump_bytes.hex()})
-
+@app.post("/test")
+async def receive_files(
+    video: UploadFile = File(...),
+    stump_img: UploadFile = File(...)
+):
+    print(f"Received video: {video.filename}, type: {video.content_type}")
+    print(f"Received image: {stump_img.filename}, type: {stump_img.content_type}")
+    return {"message": "Files received successfully"}
 
 @app.post("/finalResult")
 async def final_result(video: UploadFile = File(...), stump_img: UploadFile = File(...)):
     """Endpoint to process the uploaded video and stump image."""
+    cache_dir = tempfile.mkdtemp()
     try:
         logger.info(f"Received files: Video={video.filename}, Stump Image={stump_img.filename}")
 
@@ -88,26 +78,21 @@ async def final_result(video: UploadFile = File(...), stump_img: UploadFile = Fi
         if not stump_img.filename.lower().endswith((".png", ".jpg", ".jpeg")):
             raise HTTPException(status_code=400, detail="Invalid image format. Only PNG/JPG/JPEG allowed.")
 
-        # Create a temporary directory for caching
-        cache_dir = tempfile.mkdtemp()
+        # Define file paths
         video_path = os.path.join(cache_dir, video.filename)
         stump_image_path = os.path.join(cache_dir, stump_img.filename)
 
-        # Save video
-        video_bytes = await video.read()
-        if not video_bytes:
-            raise HTTPException(status_code=400, detail="Uploaded video is empty.")
+        # Save video (streaming to prevent memory issues)
         with open(video_path, "wb") as f:
-            f.write(video_bytes)
+            shutil.copyfileobj(video.file, f)
 
-        # Save stump image
-        stump_bytes = await stump_img.read()
-        if not stump_bytes:
-            raise HTTPException(status_code=400, detail="Uploaded stump image is empty.")
+        # Save stump image (streaming to prevent memory issues)
         with open(stump_image_path, "wb") as f:
-            f.write(stump_bytes)
+            shutil.copyfileobj(stump_img.file, f)
 
-        # Load image for OpenCV
+        logger.info("Files saved successfully. Processing...")
+
+        # Load stump image for OpenCV
         stump_image = cv2.imread(stump_image_path, cv2.IMREAD_COLOR)
         if stump_image is None:
             raise HTTPException(status_code=400, detail="Failed to decode stump image. Ensure it is a valid PNG/JPG file.")
@@ -115,13 +100,11 @@ async def final_result(video: UploadFile = File(...), stump_img: UploadFile = Fi
         # Process video and image
         model = LBWDetectionModel()
         result = model.get_result(video_path, stump_image_path)
-        print("result")
-        print(result)
-        print("result")
-        # Cleanup: Remove temporary directory with all files
-        shutil.rmtree(cache_dir)
+        
+        logger.info(f"Processing complete. Result: {result}")
 
-        return JSONResponse(content=result)
+        # return JSONResponse(content=result)
+        return FileResponse(result, media_type="image/jpeg", filename="output_image.jpg")
 
     except HTTPException as e:
         logger.error(f"HTTP error: {e.detail}")
@@ -129,25 +112,13 @@ async def final_result(video: UploadFile = File(...), stump_img: UploadFile = Fi
 
     except Exception as e:
         logger.exception("Unexpected error occurred")
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
+    finally:
+        # Ensure cleanup happens even on failure
+        shutil.rmtree(cache_dir, ignore_errors=True)
+        logger.info("Temporary files cleaned up.")
 
-# @app.post("/finalResult")
-# async def final_result(video: UploadFile = File(...), stump_img: UploadFile = File(...)):
-#     print(f"Received video: {video.filename}, stump image: {stump_img.filename}")
-
-#     # Save video
-#     video_path = os.path.join(UPLOAD_DIR, video.filename)
-#     with open(video_path, "wb") as buffer:
-#         shutil.copyfileobj(video.file, buffer)
-
-#     # Save stump image
-#     stump_path = os.path.join(UPLOAD_DIR, stump_img.filename)
-#     with open(stump_path, "wb") as buffer:
-#         shutil.copyfileobj(stump_img.file, buffer)
-
-#     model = LBWDetectionModel()
-
-#     return model.get_result(video_path, stump_path)
 
 if __name__ == "__main__":
     import uvicorn
