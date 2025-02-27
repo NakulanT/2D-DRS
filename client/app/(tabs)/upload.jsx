@@ -8,10 +8,13 @@ const UploadScreen = () => {
   const [video, setVideo] = useState(null);
   const [processedImage, setProcessedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [debugStatus, setDebugStatus] = useState(''); // Added debugStatus
 
   const pickMedia = async (mediaType) => {
-   let result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], quality: 1, });
-
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images", "videos"],
+      quality: 1,
+    });
 
     if (!result.canceled) {
       const selectedFile = result.assets[0];
@@ -21,59 +24,81 @@ const UploadScreen = () => {
 
       try {
         await FileSystem.copyAsync({ from: selectedFile.uri, to: tempUri });
-
         const mediaFile = { uri: tempUri, type: fileType, name: fileName };
         mediaType === 'image' ? setImage(mediaFile) : setVideo(mediaFile);
+        setDebugStatus(`${mediaType} cached: ${tempUri}`);
       } catch (error) {
         console.error(`Error saving ${mediaType} to temp:`, error);
+        setDebugStatus(`Failed to cache ${mediaType}: ${error.message}`);
       }
     }
   };
 
   const uploadMedia = async () => {
     if (!image || !video) {
-      Alert.alert('Error', 'Please select both an image and a video');
+      setDebugStatus('Missing video or stump image');
+      Alert.alert('Error', 'Both video and stump image are required');
       return;
     }
 
+    setDebugStatus('Verifying files...');
+    const videoInfo = await FileSystem.getInfoAsync(video.uri);
+    const imageInfo = await FileSystem.getInfoAsync(image.uri);
+    console.log('Pre-upload check:', { video: videoInfo, image: imageInfo });
+    if (!videoInfo.exists || !imageInfo.exists || videoInfo.size === 0 || imageInfo.size === 0) {
+      setDebugStatus('Invalid files detected');
+      Alert.alert('Error', 'One or both files are missing or empty');
+      return;
+    }
+
+    setDebugStatus('Uploading files...');
     let formData = new FormData();
     formData.append('video', { uri: video.uri, type: video.type, name: video.name });
     formData.append('stump_img', { uri: image.uri, type: image.type, name: image.name });
+    console.log("formData", formData);
 
     try {
-      let response = await fetch('https://3945-120-60-79-235.ngrok-free.app/finalResult', {
+      console.log('Upload details:', { video: video.uri, stump_img: image.uri });
+      const response = await fetch('https://9f71-120-56-197-68.ngrok-free.app/finalResult', {
         method: 'POST',
         body: formData,
         headers: {
           'Accept': 'image/jpeg',
-          'Content-Type': 'multipart/form-data',
+          // 'Content-Type': 'multipart/form-data' //is set automatically by FormData
         },
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP error! Status: ${response.status}, Details: ${errorText}`);
       }
 
-      // ✅ Save the returned image to cache
-      const fileUri = `${FileSystem.cacheDirectory}processed_image.jpg`;
+      setDebugStatus('Processing response...');
+      const fileUri = `${FileSystem.cacheDirectory}processed_image_${Date.now()}.jpg`;
       const imageBlob = await response.blob();
       const reader = new FileReader();
 
       reader.onloadend = async () => {
         const base64data = reader.result.split(',')[1];
-        await FileSystem.writeAsStringAsync(fileUri, base64data, { encoding: FileSystem.EncodingType.Base64 });
+        await FileSystem.writeAsStringAsync(fileUri, base64data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
         setProcessedImage(fileUri);
         setModalVisible(true);
+        setDebugStatus(`Processed image saved: ${fileUri}`);
       };
 
       reader.readAsDataURL(imageBlob);
+      Alert.alert('Upload Success', 'Files uploaded successfully!');
     } catch (error) {
-      console.error("Upload Failed:", error);
-      Alert.alert('Upload Failed', 'Something went wrong');
+      console.error('Upload error:', error);
+      setDebugStatus(`Upload failed: ${error.message}`);
+      Alert.alert('Upload Failed', error.message);
     }
   };
 
   const clearCache = async () => {
+    setDebugStatus('Clearing cache...');
     try {
       if (processedImage) {
         await FileSystem.deleteAsync(processedImage, { idempotent: true });
@@ -84,15 +109,15 @@ const UploadScreen = () => {
       if (video) {
         await FileSystem.deleteAsync(video.uri, { idempotent: true });
       }
+      setImage(null);
+      setVideo(null);
+      setProcessedImage(null);
+      setModalVisible(false);
+      setDebugStatus('Cache cleared');
     } catch (error) {
       console.error("Error clearing cache:", error);
+      setDebugStatus(`Cache clear failed: ${error.message}`);
     }
-    
-    // ✅ Reset all states
-    setImage(null);
-    setVideo(null);
-    setProcessedImage(null);
-    setModalVisible(false);
   };
 
   return (
@@ -109,8 +134,8 @@ const UploadScreen = () => {
       {video && <Text style={styles.text}>Video Selected</Text>}
 
       <Button title="Upload to Backend" onPress={uploadMedia} />
+      <Text style={styles.debugText}>{debugStatus}</Text> {/* Added debug status display */}
 
-      {/* ✅ Full-screen Processed Image with Cancel Button */}
       <Modal visible={modalVisible} transparent={true} animationType="fade">
         <View style={styles.modalContainer}>
           <Image source={{ uri: processedImage }} style={styles.fullScreenImage} />
@@ -139,6 +164,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: 'black',
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
+    marginTop: 10,
   },
   modalContainer: {
     flex: 1,
