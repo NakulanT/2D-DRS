@@ -59,7 +59,7 @@ const UploadScreen = () => {
 
     try {
       console.log('Upload details:', { video: video.uri, stump_img: image.uri });
-      const response = await fetch('https://9f71-120-56-197-68.ngrok-free.app/finalResult', {
+      const response = await fetch('https://5976-120-56-194-121.ngrok-free.app/finalResult', {
         method: 'POST',
         body: formData,
         headers: {

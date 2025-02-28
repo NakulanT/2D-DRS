@@ -1,13 +1,27 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useState, useRef } from 'react';
-import { Button, StyleSheet, Text, TouchableOpacity, View, Image, Alert } from 'react-native';
-import ImageResizer from 'react-native-image-resizer';
+import { 
+  StyleSheet, 
+  Text, 
+  TouchableOpacity, 
+  View, 
+  Image, 
+  Alert,
+  SafeAreaView,
+  Dimensions,
+  StatusBar,
+  ActivityIndicator
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function PhotoCapture({ onUploadSuccess }) {
   const [facing, setFacing] = useState('back');
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const cameraRef = useRef(null);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
 
   if (!permission) {
     return <View />;
@@ -15,10 +29,18 @@ export default function PhotoCapture({ onUploadSuccess }) {
 
   if (!permission.granted) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.message}>We need your permission to show the camera</Text>
-        <Button onPress={requestPermission} title="Grant Permission" />
-      </View>
+      <SafeAreaView style={styles.permissionContainer}>
+        <Text style={styles.permissionTitle}>Camera Access Required</Text>
+        <Text style={styles.permissionMessage}>
+          We need your permission to use the camera for taking photos.
+        </Text>
+        <TouchableOpacity 
+          style={styles.permissionButton} 
+          onPress={requestPermission}
+        >
+          <Text style={styles.permissionButtonText}>Grant Permission</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
     );
   }
 
@@ -29,33 +51,16 @@ export default function PhotoCapture({ onUploadSuccess }) {
   async function takePhoto() {
     if (cameraRef.current) {
       const photoData = await cameraRef.current.takePictureAsync({
-        quality: 1, // Highest quality
-        ratio: '16:9', // Base ratio, flipped to 9:16 in portrait
+        quality: 1,
+        ratio: '16:9',
       });
       console.log('Original photo:', { uri: photoData.uri, width: photoData.width, height: photoData.height });
-
-      // Resize to 1080x1920
-      try {
-        const resized = await ImageResizer.createResizedImage(
-          photoData.uri,
-          1080, // Target width
-          1920, // Target height
-          'JPEG', // Format
-          100, // Quality (0-100)
-          0, // Rotation (0 for portrait)
-          FileSystem.cacheDirectory // Output directory
-        );
-        console.log('Resized photo:', { uri: resized.uri, width: resized.width, height: resized.height });
-        setPhoto(resized.uri);
-      } catch (error) {
-        console.error('Resize error:', error);
-        Alert.alert('Error', 'Failed to resize photo');
-        setPhoto(photoData.uri); // Fallback to original if resize fails
-      }
+      setPhoto(photoData.uri);
     }
   }
 
   async function uploadPhoto(uri) {
+    setUploading(true);
     const formData = new FormData();
     formData.append('file', {
       uri: uri,
@@ -64,7 +69,7 @@ export default function PhotoCapture({ onUploadSuccess }) {
     });
 
     try {
-      const response = await fetch('https://9f71-120-56-197-68.ngrok-free.app/check_stumps', {
+      const response = await fetch('https://e9e8-120-56-194-121.ngrok-free.app/check_stumps', {
         method: 'POST',
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -86,6 +91,8 @@ export default function PhotoCapture({ onUploadSuccess }) {
     } catch (error) {
       console.error('Upload Error:', error);
       Alert.alert('Upload Failed', error.message);
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -94,98 +101,232 @@ export default function PhotoCapture({ onUploadSuccess }) {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
       {!photo ? (
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          facing={facing}
-          onTap={(event) => cameraRef.current?.focus(event.nativeEvent)}
-        >
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.button} onPress={toggleCameraFacing}>
-              <Text style={styles.text}>Flip Camera</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={takePhoto}>
-              <Text style={styles.text}>Take Photo</Text>
-            </TouchableOpacity>
-          </View>
-        </CameraView>
+        <View style={styles.cameraContainer}>
+          <CameraView
+            ref={cameraRef}
+            style={[styles.camera, { width: screenWidth, height: screenHeight }]}
+            facing={facing}
+            onTap={(event) => cameraRef.current?.focus(event.nativeEvent)}
+          >
+            {/* Camera UI Overlay */}
+            <View style={styles.overlayContainer}>
+              {/* Top Bar */}
+              <View style={styles.topBar}>
+                <TouchableOpacity style={styles.iconButton} onPress={toggleCameraFacing}>
+                  <Ionicons name="camera-reverse" size={28} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconButton}>
+                  <Ionicons name="flash-off" size={28} color="white" />
+                </TouchableOpacity>
+              </View>
+              
+              {/* Center Viewfinder */}
+              <View style={styles.viewfinder}>
+                <View style={styles.viewfinderBorder} />
+              </View>
+              
+              {/* Bottom Controls */}
+              <View style={styles.bottomControls}>
+                <View style={styles.captureButtonContainer}>
+                  <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
+                    <View style={styles.captureButtonInner} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </CameraView>
+        </View>
       ) : (
         <View style={styles.previewContainer}>
           <Image source={{ uri: photo }} style={styles.preview} />
-          <TouchableOpacity style={styles.cancelButton} onPress={cancelPreview}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.okButton} onPress={() => uploadPhoto(photo)}>
-            <Text style={styles.okText}>OK</Text>
-          </TouchableOpacity>
+          
+          {uploading ? (
+            <View style={styles.uploadingContainer}>
+              <ActivityIndicator size="large" color="#FFFFFF" />
+              <Text style={styles.uploadingText}>Uploading...</Text>
+            </View>
+          ) : (
+            <View style={styles.previewControls}>
+              <TouchableOpacity 
+                style={[styles.previewButton, styles.cancelButton]} 
+                onPress={cancelPreview}
+              >
+                <Ionicons name="close" size={24} color="white" />
+                <Text style={styles.previewButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.previewButton, styles.confirmButton]} 
+                onPress={() => uploadPhoto(photo)}
+              >
+                <Ionicons name="checkmark" size={24} color="white" />
+                <Text style={styles.previewButtonText}>Use Photo</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#000',
   },
-  message: {
-    textAlign: 'center',
-  },
-  camera: {
-    flex: 1,
-    aspectRatio: 9 / 16, // Portrait 9:16 for 1080x1920
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'flex-end',
-    backgroundColor: 'transparent',
-    paddingBottom: 20,
-  },
-  button: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    padding: 10,
-    borderRadius: 10,
-  },
-  text: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  previewContainer: {
+  permissionContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+  },
+  permissionTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    color: '#333',
+  },
+  permissionMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+    color: '#666',
+  },
+  permissionButton: {
+    backgroundColor: '#4285F4',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  permissionButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cameraContainer: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  camera: {
+    flex: 1,
+  },
+  overlayContainer: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    justifyContent: 'space-between',
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+    paddingTop: 24,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  viewfinder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  viewfinderBorder: {
+    width: '70%',
+    height: '50%',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.5)',
+    borderRadius: 12,
+  },
+  bottomControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+  captureButtonContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureButtonInner: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  previewContainer: {
+    flex: 1,
     backgroundColor: 'black',
   },
   preview: {
-    width: '100%',
-    height: '80%',
+    flex: 1,
     resizeMode: 'contain',
   },
+  previewControls: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  previewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    justifyContent: 'center',
+  },
   cancelButton: {
-    marginTop: 10,
-    backgroundColor: 'red',
-    padding: 10,
-    borderRadius: 10,
+    backgroundColor: '#E53935',
   },
-  okButton: {
-    marginTop: 10,
-    backgroundColor: 'green',
-    padding: 10,
-    borderRadius: 10,
+  confirmButton: {
+    backgroundColor: '#43A047',
   },
-  cancelText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  previewButtonText: {
     color: 'white',
-  },
-  okText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  uploadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  uploadingText: {
     color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
   },
 });
