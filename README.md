@@ -43,8 +43,6 @@ To run this project, ensure you have the following installed:
    - `stump_detection.pt`: Model for detecting stumps.
    Place these files in the project directory.
 
-   ```
-
 ---
 
 ## Usage
