@@ -68,7 +68,7 @@ To run this project, ensure you have the following installed:
 3. Output:
    - **Processed Video:** Saved as `output_video.mp4` with ball tracking and trajectory overlays.
    - **Result Image:** Saved as `output_image.jpg` with the LBW decision summary (Pitching, Impact, Wickets).
-
+  ![Alt text](sample_output.jpg)
 ---
 
 ## Methodology
@@ -114,7 +114,6 @@ The system processes the LBW decision in the following steps:
   - `prediction_extention_point`: Calculates the extended trajectory and stump intersection.
   - `draw_result`: Renders the LBW decision on the final frame.
   - `get_result`: Orchestrates the full pipeline from video input to result output.
-
 ---
 
 ## Limitations
