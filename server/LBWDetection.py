@@ -353,7 +353,7 @@ class LBWDetectionModel:
         # Calculate x-coordinates for the line
         x_start = min(batting_stump[0], bowling_stump[0])  # Minimum x1
         x_end = max(batting_stump[2], bowling_stump[2])    # Maximum x2
-        cv2.line(Image, (x_start, y_coordinate_12_42), (x_end, y_coordinate_12_42), (0, 255, 255), 2)  # Yellow line
+        # cv2.line(Image, (x_start, y_coordinate_12_42), (x_end, y_coordinate_12_42), (0, 255, 255), 2)  # Yellow line
 
         # Calculate the percentage of default value between batting stump bottom and split line
         ball_pitch_Y_value = Pitchpoint[1]
@@ -364,7 +364,7 @@ class LBWDetectionModel:
         batting_stump_top = batting_stump[1]
         range_top_bottom = batting_stump_bottom - batting_stump_top
         y_value_from_bottom = int(batting_stump_bottom - (percentage / 100) * range_top_bottom)
-        cv2.line(Image, (x_start, y_value_from_bottom), (x_end, y_value_from_bottom), (0, 255, 255), 2)  # Yellow line
+        # cv2.line(Image, (x_start, y_value_from_bottom), (x_end, y_value_from_bottom), (0, 255, 255), 2)  # Yellow line
 
         return Image , y_value_from_bottom
         
